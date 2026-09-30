@@ -58,7 +58,7 @@ jobs:
           };" > src/config.js
 
       - name: Tests
-        run: npm test
+        run: npm test -- --coverage
 
       - name: set version
         id: set_version
