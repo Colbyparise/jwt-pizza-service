@@ -5,7 +5,7 @@ const { DB, Role } = require('../database/database');
 const testUser = { name: 'pizza diner', email: 'reg@test.com', password: 'a' };
 let testUserAuthToken;
 
-const suffix = Date.now().toString(36);
+const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const adminCredentials = { name: `test admin ${suffix}`, email: `admin-${suffix}@test.com`, password: 'admin-password' };
 const dinerCredentials = { name: `test diner ${suffix}`, email: `diner-${suffix}@test.com`, password: 'diner-password' };
 const franchiseeCredentials = { name: `test franchisee ${suffix}`, email: `franchisee-${suffix}@test.com`, password: 'franchisee-password' };
@@ -18,6 +18,7 @@ let franchiseeToken;
 let franchiseId;
 let storeId;
 let menuItem;
+let disposableUser;
 
 beforeAll(async () => {
   const menu = await DB.getMenu();
@@ -40,6 +41,7 @@ beforeAll(async () => {
   adminUser = await DB.addUser({ ...adminCredentials, roles: [{ role: Role.Admin }] });
   dinerUser = await DB.addUser({ ...dinerCredentials, roles: [{ role: Role.Diner }] });
   franchiseeUser = await DB.addUser({ ...franchiseeCredentials, roles: [{ role: Role.Diner }] });
+  disposableUser = await DB.addUser({ name: `disposable ${suffix}`, email: `disposable-${suffix}@test.com`, password: 'disposable', roles: [{ role: Role.Diner }] });
 
   adminToken = (await login(adminCredentials)).token;
   dinerToken = (await login(dinerCredentials)).token;
@@ -131,14 +133,41 @@ test('supports authenticated user endpoints and authorization checks', async () 
   expect(meResponse.status).toBe(200);
   expect(meResponse.body.email).toBe(dinerCredentials.email);
 
-  const listResponse = await request(app).get('/api/user').set('Authorization', `Bearer ${adminToken}`);
+  const unauthorizedListResponse = await request(app).get('/api/user');
+  expect(unauthorizedListResponse.status).toBe(401);
+
+  const forbiddenListResponse = await request(app).get('/api/user').set('Authorization', `Bearer ${dinerToken}`);
+  expect(forbiddenListResponse.status).toBe(403);
+
+  const listResponse = await request(app).get(`/api/user?page=0&limit=10&name=*${suffix}*`).set('Authorization', `Bearer ${adminToken}`);
   expect(listResponse.status).toBe(200);
-  expect(listResponse.body).toEqual({ message: 'not implemented', users: [], more: false });
+  const listedAdmin = listResponse.body.users.find((user) => user.id === adminUser.id);
+  expect(listedAdmin).toMatchObject({ name: adminCredentials.name, email: adminCredentials.email, roles: [{ role: Role.Admin }] });
+  expect(listedAdmin).not.toHaveProperty('password');
+  expect(listResponse.body.more).toBe(false);
+
+  const paginatedResponse = await request(app).get(`/api/user?page=0&limit=2&name=*${suffix}*`).set('Authorization', `Bearer ${adminToken}`);
+  const nextPageResponse = await request(app).get(`/api/user?page=1&limit=2&name=*${suffix}*`).set('Authorization', `Bearer ${adminToken}`);
+  expect(paginatedResponse.body.users).toHaveLength(2);
+  expect(paginatedResponse.body.more).toBe(true);
+  expect(nextPageResponse.body.users.length).toBeGreaterThan(0);
+  expect(nextPageResponse.body.more).toBe(false);
+
+  const forbiddenDeleteResponse = await request(app)
+    .delete(`/api/user/${disposableUser.id}`)
+    .set('Authorization', `Bearer ${dinerToken}`);
+  expect(forbiddenDeleteResponse.status).toBe(403);
+
+  const unauthorizedDeleteResponse = await request(app).delete(`/api/user/${disposableUser.id}`);
+  expect(unauthorizedDeleteResponse.status).toBe(401);
 
   const deleteResponse = await request(app)
-    .delete(`/api/user/${dinerUser.id}`)
+    .delete(`/api/user/${disposableUser.id}`)
     .set('Authorization', `Bearer ${adminToken}`);
   expect(deleteResponse.status).toBe(200);
+  expect(deleteResponse.body).toEqual({ message: 'user deleted' });
+  const deletedUserResponse = await request(app).get(`/api/user?page=0&limit=10&name=${encodeURIComponent(disposableUser.name)}`).set('Authorization', `Bearer ${adminToken}`);
+  expect(deletedUserResponse.body.users).toEqual([]);
 
   const forbiddenResponse = await request(app)
     .put(`/api/user/${adminUser.id}`)

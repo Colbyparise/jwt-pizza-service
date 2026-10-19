@@ -75,6 +75,50 @@ class DB {
     }
   }
 
+  //here is where i added the necessary backend logic for the new user listing feature
+  async getUsers(page = 0, limit = 10, nameFilter = '*') {
+    const connection = await this.getConnection();
+    const offset = page * limit;
+    const sqlNameFilter = nameFilter.replace(/\*/g, '%');
+    try {
+      let users = await this.query(
+        connection,
+        `SELECT id, name, email FROM user WHERE name LIKE ? ORDER BY name, id LIMIT ${limit + 1} OFFSET ${offset}`,
+        [sqlNameFilter],
+      );
+      const more = users.length > limit;
+      if (more) users = users.slice(0, limit);
+
+      for (const user of users) {
+        const roles = await this.query(connection, `SELECT role, objectId FROM userRole WHERE userId=?`, [user.id]);
+        user.roles = roles.map((role) => ({ objectId: role.objectId || undefined, role: role.role }));
+      }
+      return { users, more };
+    } finally {
+      connection.end();
+    }
+  }
+
+  //here is where i added the necessary backend logic for the new user deletion feature
+  async deleteUser(userId) {
+    const connection = await this.getConnection();
+    try {
+      await connection.beginTransaction();
+      try {
+        await this.query(connection, `DELETE FROM auth WHERE userId=?`, [userId]);
+        await this.query(connection, `DELETE FROM userRole WHERE userId=?`, [userId]);
+        const result = await this.query(connection, `DELETE FROM user WHERE id=?`, [userId]);
+        if (result.affectedRows === 0) throw new StatusCodeError('user not found', 404);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+    } finally {
+      connection.end();
+    }
+  }
+
   async updateUser(userId, name, email, password) {
     const connection = await this.getConnection();
     try {

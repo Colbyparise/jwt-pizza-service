@@ -22,6 +22,23 @@ userRouter.docs = [
     example: `curl -X PUT localhost:3000/api/user/1 -d '{"name":"常用名字", "email":"a@jwt.com", "password":"admin"}' -H 'Content-Type: application/json' -H 'Authorization: Bearer tttttt'`,
     response: { user: { id: 1, name: '常用名字', email: 'a@jwt.com', roles: [{ role: 'admin' }] }, token: 'tttttt' },
   },
+  //here is where i added the necessary backend logic for the new user listing feature
+  {
+    method: 'GET',
+    path: '/api/user?page=0&limit=10&name=*',
+    requiresAuth: true,
+    description: 'Gets a paginated list of users (admin only)',
+    example: `curl -X GET 'localhost:3000/api/user?page=0&limit=10&name=*' -H 'Authorization: Bearer tttttt'`,
+    response: { users: [{ id: 1, name: 'Pizza Diner', email: 'd@jwt.com', roles: [{ role: 'diner' }] }], more: false },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/user/:userId',
+    requiresAuth: true,
+    description: 'Deletes a user (admin only)',
+    example: `curl -X DELETE localhost:3000/api/user/2 -H 'Authorization: Bearer tttttt'`,
+    response: { message: 'user deleted' },
+  },
 ];
 
 // getUser
@@ -56,7 +73,15 @@ userRouter.delete(
   '/:userId',
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
-    res.json({ message: 'not implemented' });
+    if (!req.user.isRole(Role.Admin)) {
+      return res.status(403).json({ message: 'unauthorized' });
+    }
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ message: 'invalid user id' });
+    }
+    await DB.deleteUser(userId);
+    res.json({ message: 'user deleted' });
   })
 );
 
@@ -65,7 +90,17 @@ userRouter.get(
   '/',
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
-    res.json({ message: 'not implemented', users: [], more: false });
+    if (!req.user.isRole(Role.Admin)) {
+      return res.status(403).json({ message: 'unauthorized' });
+    }
+    const page = req.query.page === undefined ? 0 : Number(req.query.page);
+    const limit = req.query.limit === undefined ? 10 : Number(req.query.limit);
+    const name = typeof req.query.name === 'string' ? req.query.name : '*';
+    if (!Number.isInteger(page) || page < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return res.status(400).json({ message: 'page must be a non-negative integer and limit must be between 1 and 100' });
+    }
+    const result = await DB.getUsers(page, limit, name);
+    res.json(result);
   })
 );
 
