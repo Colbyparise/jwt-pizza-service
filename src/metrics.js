@@ -3,7 +3,8 @@ const config = require('./config');
 
 const metricsConfig = config.metrics || {};
 const { source = 'jwt-pizza-service', endpointURL, accountId, apiKey } = metricsConfig;
-const exporterEnabled = Boolean(endpointURL && accountId && apiKey);
+const exporterConfigured = Boolean(endpointURL && accountId && apiKey);
+const exporterEnabled = process.env.NODE_ENV !== 'test' && exporterConfigured;
 const authorization = exporterEnabled
   ? `Basic ${Buffer.from(`${accountId}:${apiKey}`).toString('base64')}`
   : null;
@@ -13,7 +14,10 @@ const gauges = new Map();
 const histograms = new Map();
 const activeSessions = new Map();
 const processStartUnixNano = (BigInt(Date.now()) * 1_000_000n).toString();
-const histogramBounds = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+const histogramBounds = [
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
+  1, 2.5, 5, 10, 15, 30, 60, 120
+];
 const activeUserWindowMs = 5 * 60 * 1000;
 
 function pointAttributes(labels = {}) {
@@ -270,7 +274,7 @@ if (exporterEnabled) {
   const exportTimer = setInterval(() => void flushMetrics(), 5_000);
   systemMetricsTimer.unref();
   exportTimer.unref();
-} else {
+} else if (!exporterConfigured) {
   console.warn('Grafana metrics export is disabled because metrics credentials are missing from config.js.');
 }
 
