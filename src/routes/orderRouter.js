@@ -3,6 +3,7 @@ const config = require('../config.js');
 const { Role, DB } = require('../database/database.js');
 const { authRouter } = require('./authRouter.js');
 const { asyncHandler, StatusCodeError } = require('../endpointHelper.js');
+const metrics = require('../metrics.js');
 
 const orderRouter = express.Router();
 
@@ -79,12 +80,29 @@ orderRouter.post(
   asyncHandler(async (req, res) => {
     const orderReq = req.body;
     const order = await DB.addDinerOrder(req.user, orderReq);
-    const r = await fetch(`${config.factory.url}/api/order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
-      body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
-    });
-    const j = await r.json();
+    const items = Array.isArray(order.items) ? order.items : orderReq.items || [];
+    const pizzaCount = items.length;
+    const revenue = items.reduce((total, item) => total + Number(item.price || 0), 0);
+    const factoryStartedAt = process.hrtime.bigint();
+    let r;
+    let j;
+
+    try {
+      r = await fetch(`${config.factory.url}/api/order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
+        body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
+      });
+      j = await r.json();
+    } catch (error) {
+      const latencyMs = Number(process.hrtime.bigint() - factoryStartedAt) / 1_000_000;
+      metrics.pizzaPurchase(false, latencyMs, 0, pizzaCount);
+      throw error;
+    }
+
+    const latencyMs = Number(process.hrtime.bigint() - factoryStartedAt) / 1_000_000;
+    metrics.pizzaPurchase(r.ok, latencyMs, r.ok ? revenue : 0, r.ok ? pizzaCount : 0);
+
     if (r.ok) {
       res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
     } else {
