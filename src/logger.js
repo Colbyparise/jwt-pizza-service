@@ -26,7 +26,7 @@ function sanitize(value, depth = 0) {
   if (value && typeof value === 'object') {
     const safe = {};
     for (const [key, item] of Object.entries(value)) {
-      safe[key] = (secretKeys.test(key) && key !== 'hasAuthorizationHeader') || key.toLowerCase() === 'stack'
+      safe[key] = (secretKeys.test(key) && key !== 'hasAuthorizationHeader') || ['stack', 'example'].includes(key.toLowerCase())
         ? '[REDACTED]' : sanitize(item, depth + 1);
     }
     return safe;
@@ -81,6 +81,7 @@ async function sendLogToGrafana(payload) {
 
 function httpLogger(req, res, next) {
   context.run({ req }, () => {
+    const path = req.originalUrl.split('?')[0];
     let responseBody;
     const send = res.send;
     res.send = function (body) {
@@ -90,7 +91,7 @@ function httpLogger(req, res, next) {
     res.on('finish', () => {
       log(res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info', 'http', {
         method: req.method,
-        path: req.path,
+        path,
         statusCode: res.statusCode,
         hasAuthorizationHeader: Boolean(req.headers.authorization),
         requestBody: req.body ?? null,
