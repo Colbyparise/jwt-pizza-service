@@ -404,7 +404,12 @@ class DB {
         connection.end();
       }
     } catch (err) {
-      console.error(JSON.stringify({ message: 'Error initializing database', exception: err.message, connection: config.db.connection }));
+      console.error(JSON.stringify({
+        message: 'Error initializing database',
+        exception: err.message,
+        host: config.db.connection.host,
+        database: config.db.connection.database,
+      }));
     }
   }
 
