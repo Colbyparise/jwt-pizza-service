@@ -93,6 +93,17 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_HOSTNAME: ${{ secrets.DB_HOSTNAME }}
         run: |
+          for name in DB_USERNAME DB_PASSWORD DB_HOSTNAME; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+          if [[ "$DB_HOSTNAME" == "127.0.0.1" || "$DB_HOSTNAME" == "localhost" ]]; then
+            echo "::error::DB_HOSTNAME must point to the production database"
+            exit 1
+          fi
+
           mkdir dist
           cp Dockerfile dist/
           cp -r src/* dist/
